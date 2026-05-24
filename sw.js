@@ -95,7 +95,7 @@ self.addEventListener('message', (event) => {
   }
 
   if (type === 'PING') {
-    event.source?.postMessage({ type: 'PONG' });
+    event.source?.postMessage({ type: 'PONG', alarmCount: alarmTimers.size });
   }
 });
 
