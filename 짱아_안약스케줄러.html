@@ -245,6 +245,25 @@
         .cell-empty{color:var(--t3);font-size:.7rem;}
         .preview-legend{display:flex;gap:12px;margin-top:10px;font-size:.7rem;color:var(--t2);flex-wrap:wrap;}
 
+        /* ── 지각 완료 모달 ── */
+        .late-modal{position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.72);
+            display:flex;align-items:flex-end;justify-content:center;}
+        .late-box{background:var(--bg2);border-radius:20px 20px 0 0;width:100%;
+            padding:20px 18px;padding-bottom:max(24px,env(safe-area-inset-bottom));}
+        .late-title{font-size:1rem;font-weight:800;margin-bottom:4px;}
+        .late-sub{font-size:.78rem;color:var(--t2);margin-bottom:14px;line-height:1.5;}
+        .late-time-row{display:flex;gap:10px;align-items:center;margin-bottom:16px;}
+        .late-time-label{font-size:.8rem;font-weight:700;color:var(--t2);white-space:nowrap;}
+        .late-time-input{flex:1;padding:9px 12px;background:var(--card);border:1px solid var(--border);
+            border-radius:var(--rs);color:var(--t1);font-size:1rem;outline:none;font-family:inherit;}
+        .late-time-input:focus{border-color:var(--blue);}
+        .late-btn-row{display:flex;gap:8px;}
+        .late-btn{flex:1;padding:12px;border-radius:var(--rs);border:none;cursor:pointer;
+            font-size:.88rem;font-weight:700;font-family:inherit;}
+        .late-btn-ok{background:var(--blue);color:#fff;}
+        .late-btn-sched{background:var(--green);color:#fff;}
+        .late-btn-cancel{background:var(--card);color:var(--t2);border:1px solid var(--border);}
+
         /* ── 구글 캘린더 모달 ── */
         .gcal-info{font-size:.78rem;color:var(--t2);line-height:1.7;margin-bottom:12px;
             background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.2);
@@ -441,6 +460,23 @@
         </p>
     </div>
 
+</div>
+
+<!-- ====== 모달: 지각 완료 ====== -->
+<div id="late-modal" class="late-modal" style="display:none">
+    <div class="late-box">
+        <div class="late-title" id="late-modal-title">💊 실제 투약 시간 입력</div>
+        <div class="late-sub" id="late-modal-sub">예정 시간보다 늦게 투약했다면 실제 시간을 입력해주세요.<br>다음 회차 시간이 자동으로 조정됩니다.</div>
+        <div class="late-time-row">
+            <span class="late-time-label">실제 투약 시간</span>
+            <input type="time" class="late-time-input" id="late-time-input">
+        </div>
+        <div class="late-btn-row">
+            <button class="late-btn late-btn-sched" id="late-btn-sched">⏰ 예정대로 완료</button>
+            <button class="late-btn late-btn-ok" id="late-btn-ok">✓ 이 시간으로 완료</button>
+            <button class="late-btn late-btn-cancel" id="late-btn-cancel">취소</button>
+        </div>
+    </div>
 </div>
 
 <!-- ====== 모달: 약품 추가/편집 ====== -->
@@ -1148,10 +1184,80 @@ function renderTimeline() {
     });
 }
 
-function toggleDone(id){
-    state.completed[id]=!state.completed[id];
-    save(); renderTimeline(); renderStats();
-    scheduleSwAlarms(); // 완료 처리 시 SW 알람도 갱신
+function toggleDone(id) {
+    const tasks = buildTasks();
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+
+    // 완료 → 미완료 (취소)
+    if (task.done) {
+        state.completed[id] = false;
+        save(); renderTimeline(); renderStats(); scheduleSwAlarms();
+        return;
+    }
+
+    // 오늘이 아니면 그냥 완료
+    if (state.date !== todayStr()) {
+        state.completed[id] = true;
+        save(); renderTimeline(); renderStats(); scheduleSwAlarms();
+        return;
+    }
+
+    // 예정 시간이 지났는지 확인
+    const now = new Date();
+    const [sh, sm] = task.timeStr.split(':').map(Number);
+    const nowMins = now.getHours() * 60 + now.getMinutes();
+    const schedMins = sh * 60 + sm;
+    const isLate = nowMins > schedMins + 1; // 1분 이상 지남
+
+    if (!isLate) {
+        // 제시간 → 바로 완료
+        state.completed[id] = true;
+        save(); renderTimeline(); renderStats(); scheduleSwAlarms();
+        return;
+    }
+
+    // 지각 → 팝업 표시
+    const nowStr = `${p2(now.getHours())}:${p2(now.getMinutes())}`;
+    document.getElementById('late-time-input').value = nowStr;
+    document.getElementById('late-modal-title').textContent = `💊 ${task.name} — 지연 투약`;
+    document.getElementById('late-modal-sub').textContent =
+        `예정: ${task.timeStr} → 현재: ${nowStr}\n실제 투약 시간을 입력하면 다음 회차가 자동 조정돼요.`;
+    document.getElementById('late-modal').style.display = 'flex';
+    document.getElementById('late-modal').dataset.taskId = id;
+}
+
+function applyLateCompletion(taskId, actualTimeStr) {
+    const tasks = buildTasks();
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    const med = MEDS.find(m => m.id === task.medId);
+    if (!med) return;
+
+    // 실제 투약 시간 기준으로 baseTimes 재계산
+    // newBase = actualTime - offsets[doseIndex]
+    const offsets = getMedOffsets(med);
+    const doseOffset = offsets[task.doseIndex] || 0; // 시간 단위
+
+    const [ah, am] = actualTimeStr.split(':').map(Number);
+    const actualMins = ah * 60 + am;
+    const newBaseMins = actualMins - doseOffset * 60;
+
+    // 자정 기준 정규화
+    let newH = Math.floor(((newBaseMins % 1440) + 1440) % 1440 / 60);
+    let newM = Math.abs(newBaseMins) % 60;
+    const newBaseStr = `${p2(newH)}:${p2(newM)}`;
+
+    state.baseTimes[task.medId] = newBaseStr;
+    state.completed[taskId] = true;
+
+    save(); renderTimeline(); renderStats(); renderMedControls(); scheduleSwAlarms();
+    closeLateModal();
+}
+
+function closeLateModal() {
+    document.getElementById('late-modal').style.display = 'none';
 }
 
 // ── 통계 ──
@@ -1744,6 +1850,24 @@ document.addEventListener('DOMContentLoaded',()=>{
 
     // TTS 보이스 사전 로딩
     if('speechSynthesis' in window) window.speechSynthesis.getVoices();
+
+    // 지각 완료 모달 버튼
+    document.getElementById('late-btn-ok').addEventListener('click', () => {
+        const taskId = document.getElementById('late-modal').dataset.taskId;
+        const t = document.getElementById('late-time-input').value;
+        if (!t) return;
+        applyLateCompletion(taskId, t);
+    });
+    document.getElementById('late-btn-sched').addEventListener('click', () => {
+        const taskId = document.getElementById('late-modal').dataset.taskId;
+        const tasks = buildTasks();
+        const task = tasks.find(t => t.id === taskId);
+        if (task) applyLateCompletion(taskId, task.timeStr);
+    });
+    document.getElementById('late-btn-cancel').addEventListener('click', closeLateModal);
+    document.getElementById('late-modal').addEventListener('click', e => {
+        if (e.target.id === 'late-modal') closeLateModal();
+    });
 
     // Web Push 버튼 이벤트
     document.getElementById('push-subscribe-btn').addEventListener('click', subscribePush);
