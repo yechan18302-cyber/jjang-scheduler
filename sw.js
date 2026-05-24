@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jjang-a-scheduler-v3';
+const CACHE_NAME = 'jjang-a-scheduler-v4';
 const ASSETS = [
   './',
   './index.html',
