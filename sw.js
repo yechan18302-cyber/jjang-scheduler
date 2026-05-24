@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jjang-scheduler-v5';
+const CACHE_NAME = 'jjang-scheduler-v6';
 
 // 아이콘/매니페스트만 캐싱 (HTML은 항상 네트워크에서 받음)
 const STATIC_ASSETS = [
@@ -17,16 +17,15 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 구버전 캐시 정리
+// 구버전 캐시 정리 + 모든 클라이언트 강제 새로고침
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
-      );
-    })
+    caches.keys()
+      .then((keys) => Promise.all(keys.map(key => caches.delete(key)))) // 모든 캐시 삭제
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => clients.forEach(client => client.postMessage({ type: 'SW_UPDATED' })))
   );
-  self.clients.claim();
 });
 
 // fetch: HTML은 항상 네트워크 우선, 나머지는 캐시 우선
@@ -64,29 +63,30 @@ self.addEventListener('fetch', (event) => {
 const alarmTimers = new Map();
 
 self.addEventListener('message', (event) => {
-  const { type, alarms } = event.data || {};
+  const { type, alarmId, medName, timeStr, doseLabel, msUntil } = event.data || {};
 
   if (type === 'SCHEDULE_ALARM') {
-    // 기존 타이머 초기화
-    alarmTimers.forEach(id => clearTimeout(id));
-    alarmTimers.clear();
+    // 같은 ID 타이머가 있으면 교체
+    if (alarmTimers.has(alarmId)) clearTimeout(alarmTimers.get(alarmId));
+    const tid = setTimeout(() => {
+      self.registration.showNotification('🐾 짱아 안약 시간!', {
+        body: `${medName} ${doseLabel} (${timeStr})`,
+        icon: './icon-192.png',
+        badge: './icon-192.png',
+        tag: alarmId,
+        requireInteraction: true,
+        vibrate: [200, 100, 200]
+      });
+      alarmTimers.delete(alarmId);
+    }, msUntil);
+    alarmTimers.set(alarmId, tid);
+  }
 
-    const now = Date.now();
-    (alarms || []).forEach(alarm => {
-      const delay = alarm.ts - now;
-      if (delay < 0 || delay > 24 * 60 * 60 * 1000) return;
-      const tid = setTimeout(() => {
-        self.registration.showNotification(alarm.title || '🐾 짱아 안약 시간!', {
-          body: alarm.body || '투약 시간입니다!',
-          icon: './icon-192.png',
-          badge: './icon-192.png',
-          tag: alarm.id,
-          requireInteraction: true,
-          vibrate: [200, 100, 200]
-        });
-      }, delay);
-      alarmTimers.set(alarm.id, tid);
-    });
+  if (type === 'CANCEL_ALARM') {
+    if (alarmTimers.has(alarmId)) {
+      clearTimeout(alarmTimers.get(alarmId));
+      alarmTimers.delete(alarmId);
+    }
   }
 
   if (type === 'RESET_ALARMS') {
