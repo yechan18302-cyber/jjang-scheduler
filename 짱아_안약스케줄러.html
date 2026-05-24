@@ -265,6 +265,27 @@
 
         @media(min-width:600px){.app{max-width:540px;margin:0 auto;}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+
+        /* ── 사이드바 ── */
+        .sidebar-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0);pointer-events:none;transition:background .25s;}
+        .sidebar-overlay.open{background:rgba(0,0,0,.55);pointer-events:all;}
+        .sidebar{position:fixed;top:0;right:0;bottom:0;z-index:301;width:min(320px,90vw);
+            background:var(--bg2);border-left:1px solid var(--border);
+            transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+            display:flex;flex-direction:column;overflow:hidden;
+            padding-bottom:max(16px,env(safe-area-inset-bottom));}
+        .sidebar.open{transform:translateX(0);}
+        .sidebar-header{display:flex;align-items:center;gap:10px;padding:14px 16px;
+            padding-top:max(14px,env(safe-area-inset-top));
+            border-bottom:1px solid var(--border);flex-shrink:0;}
+        .sidebar-title{flex:1;font-size:.95rem;font-weight:800;}
+        .sidebar-close{background:none;border:none;cursor:pointer;font-size:1.3rem;
+            color:var(--t2);padding:4px 6px;border-radius:var(--rs);}
+        .sidebar-body{flex:1;overflow-y:auto;padding:14px 14px;}
+        .sidebar-open-btn{background:none;border:1px solid var(--border);cursor:pointer;
+            font-size:.8rem;font-weight:700;padding:5px 11px;border-radius:20px;
+            color:var(--t1);display:flex;align-items:center;gap:5px;white-space:nowrap;}
+        .sidebar-open-btn:active{opacity:.8;}
     </style>
 </head>
 <body>
@@ -279,6 +300,7 @@
         </div>
         <span id="live-clock" class="live-clock">00:00:00</span>
         <button class="icon-btn" id="theme-btn">🌙</button>
+        <button class="sidebar-open-btn" id="sidebar-open-btn">💊 약품</button>
     </header>
 
     <!-- 날짜바 -->
@@ -314,18 +336,26 @@
         <div id="memo-st" class="memo-st">저장됨 ✓</div>
     </div>
 
-    <!-- 약품별 시작 시간 설정 -->
-    <div class="med-ctrl-wrap">
-        <div class="med-ctrl-header">
-            <div class="med-ctrl-title">💉 약품별 시작 시간</div>
-            <button class="edit-meds-btn" id="edit-meds-btn">⚙ 약품 편집</button>
+    <!-- 사이드바 오버레이 -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- 사이드바 -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <span class="sidebar-title">💊 약품 관리</span>
+            <button class="edit-meds-btn" id="edit-meds-btn">⚙ 편집</button>
+            <button class="sidebar-close" id="sidebar-close">✕</button>
         </div>
-        <div id="edit-toolbar" class="edit-toolbar" style="display:none">
-            <span>✏️ 편집 모드 — 약품 추가·수정·삭제</span>
-            <button class="add-med-btn" id="add-med-btn">＋ 약품 추가</button>
+        <div class="sidebar-body">
+            <div id="edit-toolbar" class="edit-toolbar" style="display:none;margin-bottom:10px;">
+                <span>✏️ 편집 모드</span>
+                <button class="add-med-btn" id="add-med-btn">＋ 약품 추가</button>
+            </div>
+            <div style="font-size:.72rem;font-weight:700;color:var(--t3);letter-spacing:.4px;
+                text-transform:uppercase;margin-bottom:10px;">💉 약품별 시작 시간</div>
+            <div class="med-ctrl-list" id="med-ctrl-list"></div>
         </div>
-        <div class="med-ctrl-list" id="med-ctrl-list"></div>
-    </div>
+    </aside>
 
     <!-- 필터 탭 + 미리보기 -->
     <div class="filter-tabs">
@@ -1665,6 +1695,21 @@ document.addEventListener('DOMContentLoaded',()=>{
 
     // 메모
     document.getElementById('memo').addEventListener('input',handleMemo);
+
+    // 사이드바 열기/닫기
+    function openSidebar() {
+        document.getElementById('sidebar').classList.add('open');
+        document.getElementById('sidebar-overlay').classList.add('open');
+        document.body.style.overflow = 'hidden';
+    }
+    function closeSidebar() {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebar-overlay').classList.remove('open');
+        document.body.style.overflow = '';
+    }
+    document.getElementById('sidebar-open-btn').addEventListener('click', openSidebar);
+    document.getElementById('sidebar-close').addEventListener('click', closeSidebar);
+    document.getElementById('sidebar-overlay').addEventListener('click', closeSidebar);
 
     // 약품 편집 모드
     document.getElementById('edit-meds-btn').addEventListener('click', ()=>{
